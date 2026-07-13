@@ -1,0 +1,66 @@
+SSH LOG ANALYSIS — SPL QUERIES USED
+=====================================
+
+1. Initial data verification after upload
+-------------------------------------------
+source="ssh.log.gz" host="ssh_log" sourcetype="ssh_log"
+
+Purpose: Confirm the uploaded ssh.log.gz file was correctly indexed and
+is searchable under the assigned sourcetype.
+
+
+2. Count of raw failure events from a specific host
+-------------------------------------------
+source="ssh.log.gz" host="ssh_log" sourcetype="ssh_log" host=ssh_log failure "192.168.202.136"
+| stats count by _raw
+
+Purpose: Break down individual failed SSH connection attempts
+originating from source IP 192.168.202.136, one row per raw event.
+
+
+3. Filtering failed connections by signature (OS/client fingerprint)
+-------------------------------------------
+source="ssh.log.gz" host="ssh_log" sourcetype="ssh_log" host=ssh_log failure "Debian-7ubuntu1" "SSH-2.0-OpenSSH_5.8p1" "192.168.202.141"
+
+Purpose: Narrow failed login attempts down to a specific client
+signature (OpenSSH 5.8p1 on Debian) from source IP 192.168.202.141.
+Returned 2,365 matching events — a strong signal of repeated,
+automated login attempts (brute-force pattern) rather than normal
+user error.
+
+
+4. Grouping failed login attempts by user
+-------------------------------------------
+source="ssh.log.gz" host="ssh_log" sourcetype="ssh_log" host=ssh_log punct="..tt...tt...tttt-t-.-._-t-t-t-t-t-"
+| stats count by user
+
+Purpose: Use punct (Splunk's punctuation-pattern field) to isolate
+events that share the same structural log format, then aggregate
+counts by user to identify which accounts were targeted most.
+
+
+5. Top offending source IP (brute-force detection)
+-------------------------------------------
+source="ssh.log.gz" sourcetype="ssh_log" failure "192.168.202.141"
+| top limit=10 punct
+
+Purpose: Identify the most common log line patterns (punct) for
+failed logins from 192.168.202.141, surfacing the dominant attack
+pattern — 2,365 near-identical failure events in rapid succession
+(timestamps ~10ms apart), consistent with an automated SSH
+brute-force tool rather than manual login attempts.
+
+
+KEY FINDINGS
+=====================================
+- Source IP 192.168.202.141 generated 2,365 failed SSH login events
+  against destination 192.168.229.101 on port 22.
+- All failed attempts used client signature SSH-2.0-OpenSSH_5.8p1
+  (Debian-7ubuntu1), and the extremely short time gaps between
+  attempts (~10ms) strongly indicate automated brute-force activity
+  rather than legitimate user error.
+- Additional source IP 192.168.202.136 was also observed generating
+  failed connections across multiple destination hosts, suggesting
+  broader scanning/probing behavior across the subnet.
+- Grouping by user and by punct pattern helped separate genuine
+  authentication noise from a clear, repeatable attack signature.
